@@ -17,7 +17,7 @@ interface PythonSimulationParams {
   extremeEventDuration: number
 }
 
-// Global variable to store pyodide instance
+// Caching the instance is a good performance practice
 let pyodideInstance: any = null
 
 async function loadPyodide() {
@@ -25,29 +25,30 @@ async function loadPyodide() {
     return pyodideInstance
   }
 
-  console.log("Loading Pyodide...")
+  // Define window.process to trick the environment detection
+  (window as any).process = {
+    browser: true,
+    env: { NODE_ENV: 'development' }
+  };
 
-  // Load pyodide from CDN
+  console.log("Loading Pyodide engine...")
   const pyodide = await (window as any).loadPyodide({
-    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.24.1/full/",
+    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/",
   })
 
-  // Install required packages
   console.log("Installing Python packages...")
   await pyodide.loadPackage(["numpy", "scipy", "pandas"])
-
+  
   pyodideInstance = pyodide
-  console.log("Pyodide loaded successfully!")
-
+  console.log("✅ Pyodide engine and packages are ready.")
   return pyodide
 }
 
 export async function runPythonSimulation(params: PythonSimulationParams): Promise<SimulationResult> {
   try {
-    // Load Pyodide if not already loaded
     const pyodide = await loadPyodide()
-
-    // Set parameters in Python namespace
+    
+    // Set parameters and run Python code as before
     pyodide.globals.set("RANDOM_SEED", params.randomSeed)
     pyodide.globals.set("N_SIMULATIONS", params.nSimulations)
     pyodide.globals.set("N_OBSERVATIONS", params.nObservations)
@@ -62,11 +63,9 @@ export async function runPythonSimulation(params: PythonSimulationParams): Promi
     pyodide.globals.set("EXTREME_EVENT_VARIANCE", params.extremeEventVariance)
     pyodide.globals.set("EXTREME_EVENT_COVARIANCE", params.extremeEventCovariance)
     pyodide.globals.set("EXTREME_EVENT_DURATION", params.extremeEventDuration)
-
-    console.log("Running Python simulation code...")
-
-    // Python simulation code
+    
     const pythonCode = `
+# ... your full python script remains here ...
 import numpy as np
 import pandas as pd
 from scipy.stats import multivariate_normal
@@ -266,14 +265,9 @@ print("Simulation completed!")
 simulation_results = results
 `
 
-    // Execute the Python code
-    await pyodide.runPython(pythonCode)
+    const results = await pyodide.runPythonAsync(pythonCode)
+    return pyodide.globals.get("simulation_results").toJs({ dict_converter: Object.fromEntries })
 
-    // Get results from Python
-    const results = pyodide.globals.get("simulation_results").toJs({ dict_converter: Object.fromEntries })
-
-    console.log("Python simulation completed successfully!")
-    return results as SimulationResult
   } catch (error) {
     console.error("Error running Python simulation:", error)
     throw new Error(`Python simulation failed: ${error}`)

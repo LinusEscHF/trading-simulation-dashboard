@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -15,7 +15,7 @@ import { runPythonSimulation } from "@/lib/python-simulation"
 import { useSimulationStore } from "@/lib/simulation-store"
 
 const formSchema = z.object({
-  // General Settings
+  // Your form schema remains the same
   randomSeed: z.coerce.number().int().default(42),
   nSimulations: z.coerce.number().int().min(1).max(1000).default(100),
   nObservations: z.coerce
@@ -23,26 +23,22 @@ const formSchema = z.object({
     .int()
     .min(100)
     .max(1000000)
-    .default(60 * 24 * 7 * 26), // 60*24*7*26
+    .default(60 * 24 * 7 * 26),
   basePrice: z.coerce.number().min(1).default(2000),
   nCurrencies: z.coerce.number().int().min(1).max(20).default(5),
-  transactionFee: z.coerce.number().min(0).max(1).default(0.0006), // 0.06%
-
-  // Trend & Volatility
+  transactionFee: z.coerce.number().min(0).max(1).default(0.0006),
   variance: z.coerce
     .number()
     .min(0)
     .max(1)
-    .default(0.012 * 0.012), // 0.012^2
+    .default(0.012 * 0.012),
   covariance: z.coerce
     .number()
     .min(0)
     .max(1)
-    .default(0.007 * 0.007), // 0.007^2
+    .default(0.007 * 0.007),
   volatility: z.coerce.number().min(0.1).max(20).default(3),
   volatilityCovariance: z.coerce.number().min(0.1).max(10).default(1.75),
-
-  // Extreme Events
   extremeEventProbability: z.coerce.number().min(0).max(1).default(0.05),
   extremeEventVariance: z.coerce.number().min(1).max(10000).default(500),
   extremeEventCovariance: z.coerce.number().min(1).max(10000).default(450),
@@ -51,12 +47,38 @@ const formSchema = z.object({
     .int()
     .min(1)
     .max(100000)
-    .default(60 * 24), // 60*24 (one day)
-})
+    .default(60 * 24),
+});
 
 export function SimulationSidebar() {
   const [isRunning, setIsRunning] = useState(false)
-  const setSimulationResults = useSimulationStore((state) => state.setResults)
+  const { setResults: setSimulationResults, isPyodideReady, setIsPyodideReady } = useSimulationStore()
+
+  useEffect(() => {
+    // Check if the script is already on the page or if we've already initialized
+    if (isPyodideReady || document.querySelector("#pyodide-script")) {
+      setIsPyodideReady(true)
+      return;
+    }
+
+    console.log("Manually injecting Pyodide script...");
+    const script = document.createElement("script");
+    script.id = "pyodide-script";
+    script.src = "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.js";
+
+    script.onload = () => {
+      console.log("✅ Pyodide script loaded successfully via manual injection.");
+      setIsPyodideReady(true);
+    };
+
+    script.onerror = () => {
+      console.error("Manual injection of Pyodide script failed.");
+    };
+
+    document.head.appendChild(script);
+
+  }, [isPyodideReady, setIsPyodideReady]);
+
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -79,6 +101,10 @@ export function SimulationSidebar() {
   })
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    if (!isPyodideReady) {
+      console.error("Pyodide is not ready yet.")
+      return
+    }
     setIsRunning(true)
     try {
       console.log("Running Python simulation with parameters:", values)
@@ -102,6 +128,7 @@ export function SimulationSidebar() {
       <div className="p-4">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            
             {/* General Settings Card */}
             <Card className="bg-slate-800 border-slate-700">
               <CardHeader className="pb-3">
@@ -434,10 +461,12 @@ export function SimulationSidebar() {
 
             <Button
               type="submit"
-              disabled={isRunning}
+              disabled={isRunning || !isPyodideReady}
               className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
             >
-              {isRunning ? (
+              {!isPyodideReady ? (
+                "Loading Python Engine..."
+              ) : isRunning ? (
                 "Running Python Simulation..."
               ) : (
                 <>
